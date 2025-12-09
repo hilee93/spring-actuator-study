@@ -1,7 +1,6 @@
 package com.codeit.actuator.service;
 
 import com.codeit.actuator.domain.Order;
-import com.codeit.actuator.domain.OrderStatus;
 import com.codeit.actuator.domain.Product;
 import com.codeit.actuator.dto.OrderRequest;
 import com.codeit.actuator.dto.OrderResponse;
@@ -9,7 +8,9 @@ import com.codeit.actuator.exception.OrderNotFoundException;
 import com.codeit.actuator.exception.ProductNotFoundException;
 import com.codeit.actuator.repository.OrderRepository;
 import com.codeit.actuator.repository.ProductRepository;
-import lombok.RequiredArgsConstructor;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.DistributionSummary;
+import io.micrometer.core.instrument.MeterRegistry;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -22,14 +23,43 @@ import java.util.stream.Collectors;
  */
 @Service
 @Transactional(readOnly = true)
-@RequiredArgsConstructor
 @Slf4j
 public class OrderService {
     
     private final OrderRepository orderRepository;
     private final ProductRepository productRepository;
     private final PaymentService paymentService;
-    
+    private final Counter orderCreatedCounter;
+    private final Counter orderCancelledCounter;
+    private final DistributionSummary orderAmountSummary;
+
+    public OrderService(
+            OrderRepository orderRepository,
+            ProductRepository productRepository,
+            PaymentService paymentService,
+            MeterRegistry meterRegistry) {
+        this.orderRepository = orderRepository;
+        this.productRepository = productRepository;
+        this.paymentService = paymentService;
+
+        // 메트릭 등록
+        this.orderCreatedCounter = Counter.builder("orders.created") // 메트릭 이름
+                .description("Total number of orders created") // 설명(선택)
+                .tag("type", "order") // 태그 (필터링용)
+                .register(meterRegistry); // 레지스트리에 메트릭 등록
+
+        // 주문 취소 카운터
+        this.orderCancelledCounter = Counter.builder("orders.cancelled") // 메트릭 이름
+                .description("Total number of orders cancelled") // 설명(선택)
+                .tag("type", "order") // 태그 (필터링용)
+                .register(meterRegistry);// 레지스트리에 메트릭 등록
+
+        this.orderAmountSummary = DistributionSummary.builder("orders.amount")
+                .description("Distribution of order amounts")
+                .baseUnit("KRW")
+                .register(meterRegistry);
+    }
+
     /**
      * 전체 주문 조회
      */
@@ -126,6 +156,10 @@ public class OrderService {
             product.increaseStock(request.getQuantity());
             throw new IllegalStateException("결제 처리에 실패했습니다");
         }
+
+        // 메트릭 증가!
+        orderCreatedCounter.increment();
+        orderAmountSummary.record(order.getTotalAmount());
         
         log.info("주문 생성 완료 - 주문ID: {}, 주문번호: {}, 금액: {}원", 
                 saved.getId(), saved.getOrderNumber(), saved.getTotalAmount());
@@ -213,6 +247,9 @@ public class OrderService {
         if (!refundSuccess) {
             log.warn("환불 처리 실패 - 주문번호: {}", order.getOrderNumber());
         }
+
+        // 메트릭 증가!
+        orderCancelledCounter.increment();
         
         log.info("주문 취소 완료 - 주문번호: {}, 환불금액: {}원", 
                 order.getOrderNumber(), order.getTotalAmount());
