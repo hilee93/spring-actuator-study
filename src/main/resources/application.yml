@@ -4,9 +4,9 @@ spring:
 
   # PostgreSQL Database 설정
   datasource:
-    url: jdbc:postgresql://localhost:5432/shopping_mall
+    url: jdbc:postgresql://localhost:5432/postgres
     username: postgres
-    password: postgres
+    password: guddlf01
     driver-class-name: org.postgresql.Driver
 
   # JPA 설정
@@ -31,3 +31,15 @@ logging:
 # 서버 설정
 server:
   port: 8080
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info, metrics, loggers, env # 꼭 필요한 것만 노출!
+      base-path: /management # 경로도 바꿔서 숨김!
+  endpoint:
+    health:
+      show-details: always # 개발 환경에서는 always, 운영에서는 when-authorized
+  server:
+    port: 9090 # Actuator 전용 포트 (방화벽으로 막음)
